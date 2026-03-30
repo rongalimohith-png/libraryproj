@@ -1,0 +1,69 @@
+require('dotenv').config();
+const express = require('express');
+const cors = require('cors');
+const path = require('path');
+const { setupDatabase } = require('./api/db/setup');
+
+const authRoutes = require('./api/routes/auth.routes');
+const booksRoutes = require('./api/routes/books.routes');
+const requestsRoutes = require('./api/routes/requests.routes');
+const notificationsRoutes = require('./api/routes/notifications.routes');
+const librarianRoutes = require('./api/routes/librarian.routes');
+const studyRoomsRoutes = require('./api/routes/rooms.routes');
+const facultyRequestsRoutes = require('./api/routes/faculty.routes');
+
+const app = express();
+
+// Middleware
+app.use(cors());
+app.use(express.json());
+
+app.use('/api/auth', authRoutes);
+app.use('/api/books', booksRoutes);
+app.use('/api/requests', requestsRoutes);
+app.use('/api/notifications', notificationsRoutes);
+app.use('/api/librarian', librarianRoutes);
+app.use('/api/study-rooms', studyRoomsRoutes);
+app.use('/api/faculty-requests', facultyRequestsRoutes);
+// Route aliases for backward compatibility with app.js frontend
+app.use('/api/students/all', (req, res) => res.redirect('/api/librarian/students/all'));
+app.use('/api/librarians/all', (req, res) => res.redirect('/api/librarian/librarians/all'));
+app.use('/api/transactions', librarianRoutes);
+
+// Health check endpoint
+app.use('/api/health', async (req, res) => {
+    try {
+        const { pool } = require('./api/db/setup');
+        const result = await pool.query('SELECT NOW()');
+        res.json({ status: 'ok', time: result.rows[0].now, env: { hasDatabaseUrl: !!process.env.DATABASE_URL } });
+    } catch (error) {
+        console.error("Health Check Error: ", error);
+        res.status(500).json({ status: 'error', message: error.message, hasDatabaseUrl: !!process.env.DATABASE_URL });
+    }
+});
+
+// Serve Static Frontend Files
+app.use(express.static(path.join(__dirname, 'public')));
+
+// Setup database and start server
+const PORT = process.env.PORT || 3000;
+
+// Export the app for Vercel
+module.exports = app;
+
+// Only start the server if we're not running in a serverless environment (like Vercel)
+if (require.main === module || !process.env.VERCEL) {
+    app.listen(PORT, async () => {
+        console.log(`Server running on port ${PORT}`);
+        if (process.env.DATABASE_URL) {
+            await setupDatabase();
+        } else {
+            console.log('No DATABASE_URL provided. Skipping auto table setup.');
+        }
+    });
+} else {
+    // In Vercel environment, still ensure database tables are created on cold start
+    if (process.env.DATABASE_URL) {
+        setupDatabase().catch(err => console.error('Database setup error on Vercel:', err));
+    }
+}
